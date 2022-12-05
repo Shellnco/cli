@@ -158,7 +158,7 @@ const buildMetadata = async (registry, manifest, tarballData, spec, opts) => {
             { code: 'EUSAGE' }
           )
         }
-        provenanceBundle = await generateProvenance({ subject: [subject] }, opts)
+        provenanceBundle = await generateProvenance([subject], opts)
       } else {
         throw Object.assign(
           new Error('Automatic provenance generation not supported outside of GitHub Actions'),

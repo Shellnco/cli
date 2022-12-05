@@ -769,7 +769,7 @@ t.test('publish existing package with provenance in gha', async t => {
       '@npmcli/libnpmpublish-test-1.0.0.sigstore': {
         content_type: 'application/vnd.dev.sigstore.bundle+json;version=0.1',
         data: /.*/, // Can't match against static value as signature is always different
-        length: 2133,
+        length: 2117,
       },
     },
   }
