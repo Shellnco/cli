@@ -1,13 +1,13 @@
 'use strict'
 
-const t = require('tap')
-const ssri = require('ssri')
-const crypto = require('crypto')
-const pack = require('libnpmpack')
-const npa = require('npm-package-arg')
 const cloneDeep = require('lodash.clonedeep')
-const MockRegistry = require('@npmcli/mock-registry')
+const crypto = require('crypto')
+const npa = require('npm-package-arg')
+const pack = require('libnpmpack')
+const ssri = require('ssri')
+const t = require('tap')
 
+const MockRegistry = require('@npmcli/mock-registry')
 const mockGlobals = require('../../../test/fixtures/mock-globals.js')
 
 // TODO use registry.manifest (requires json date wrangling for nock)
@@ -836,10 +836,6 @@ t.test('publish new/private package with provenance in gha - no access', async t
   const spec = npa(manifest.name)
   registry.getVisibility({ spec, visibility: { public: false } })
 
-  const testDir = t.testdir({
-    'package.json': JSON.stringify(manifest, null, 2),
-    'index.js': 'hello',
-  })
   await t.rejects(
     publish(manifest, Buffer.from(''), {
       ...opts,
@@ -850,17 +846,109 @@ t.test('publish new/private package with provenance in gha - no access', async t
   )
 })
 
-// t.test('user-supplied provenance', t => {
-//   const { publish } = t.mock('..')
-//   const registry = new MockRegistry({
-//     tap: t,
-//     registry: opts.registry,
-//     authorization: token
-//   })
-//   const manifest = {
-//     name: '@npmcli/libnpmpublish-test',
-//     version: '1.0.0',
-//     description: 'test libnpmpublish package',
-//   }
-//   const spec = npa(manifest.name)
-// })
+t.test('automatic provenance in unsupported environment', async t => {
+  mockGlobals(t, {
+    'process.env': {
+      CI: false,
+      GITHUB_ACTIONS: false,
+    },
+  })
+  const { publish } = t.mock('..', { 'ci-info': t.mock('ci-info') })
+  const manifest = {
+    name: '@npmcli/libnpmpublish-test',
+    version: '1.0.0',
+    description: 'test libnpmpublish package',
+  }
+
+  await t.rejects(
+    publish(manifest, Buffer.from(''), {
+      ...opts,
+      access: null,
+      provenance: true,
+    }),
+    {
+      message: /not supported/,
+      code: 'EUSAGE',
+    }
+  )
+})
+
+t.test('user-supplied provenance - success', async t => {
+  const { publish } = t.mock('..')
+  const registry = new MockRegistry({
+    tap: t,
+    registry: opts.registry,
+    authorization: token,
+  })
+  const manifest = {
+    name: '@npmcli/libnpmpublish-test',
+    version: '1.0.0',
+    description: 'test libnpmpublish package',
+  }
+  const spec = npa(manifest.name)
+  const testDir = t.testdir({
+    'package.json': JSON.stringify(manifest, null, 2),
+    'index.js': 'hello',
+  })
+  const tarData = await pack(`file:${testDir}`, { ...opts })
+  const shasum = crypto.createHash('sha1').update(tarData).digest('hex')
+  const integrity = ssri.fromData(tarData, { algorithms: ['sha512'] })
+  const packument = {
+    _id: manifest.name,
+    name: manifest.name,
+    description: manifest.description,
+    'dist-tags': {
+      latest: '1.0.0',
+    },
+    versions: {
+      '1.0.0': {
+        _id: `${manifest.name}@${manifest.version}`,
+        _nodeVersion: process.versions.node,
+        ...manifest,
+        dist: {
+          shasum,
+          integrity: integrity.sha512[0].toString(),
+          /* eslint-disable-next-line max-len */
+          tarball: 'http://mock.reg/@npmcli/libnpmpublish-test/-/@npmcli/libnpmpublish-test-1.0.0.tgz',
+        },
+      },
+    },
+    access: 'public',
+    _attachments: {
+      '@npmcli/libnpmpublish-test-1.0.0.tgz': {
+        content_type: 'application/octet-stream',
+        data: tarData.toString('base64'),
+        length: tarData.length,
+      },
+      '@npmcli/libnpmpublish-test-1.0.0.sigstore': {
+        content_type: 'application/vnd.dev.sigstore.bundle+json;version=0.1',
+        data: /.*/, // Can't match against static value as signature is always different
+        length: 5501,
+      },
+    },
+  }
+  registry.nock.put(`/${spec.escapedName}`, body => {
+    return t.match(body, packument, 'posted packument matches expectations')
+  }).reply(201, {})
+  const ret = await publish(manifest, tarData, {
+    ...opts,
+    provenance: './test/fixtures/provenance.json',
+  })
+  t.ok(ret, 'publish succeeded')
+})
+
+t.test('user-supplied provenance - failure', async t => {
+  const { publish } = t.mock('..')
+  const manifest = {
+    name: '@npmcli/libnpmpublish-test',
+    version: '1.0.0',
+    description: 'test libnpmpublish package',
+  }
+  await t.rejects(
+    publish(manifest, Buffer.from(''), {
+      ...opts,
+      provenance: './test/fixtures/bad-provenance.json',
+    }),
+    { message: /Invalid provenance provided/ }
+  )
+})

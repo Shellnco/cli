@@ -1,4 +1,5 @@
 const { sigstore } = require('sigstore')
+const { readFile } = require('fs/promises')
 
 const INTOTO_PAYLOAD_TYPE = 'application/vnd.in-toto+json'
 const INTOTO_STATEMENT_TYPE = 'https://in-toto.io/Statement/v0.1'
@@ -7,6 +8,19 @@ const SLSA_PREDICATE_TYPE = 'https://slsa.dev/provenance/v0.2'
 const BUILDER_ID_PREFIX = 'https://github.com/npm/cli'
 const BUILD_TYPE_PREFIX = 'https://github.com/npm/cli/gha'
 const BUILD_TYPE_VERSION = 'v0'
+
+const verifyProvenance = async (subject, provenance, tarballData) => {
+  let provenanceBundle
+  try {
+    provenanceBundle = JSON.parse(await readFile(provenance))
+  } catch (err) {
+    err.message = `Invalid provenance provided: ${err.message}`
+    throw err
+  }
+  // TODO
+  // await sigstore.verify(provenanceBundle, tarballData)
+  return provenanceBundle
+}
 
 const generateProvenance = async (subject, opts) => {
   const { env } = process
@@ -72,4 +86,7 @@ const generateProvenance = async (subject, opts) => {
   return sigstore.signAttestation(Buffer.from(JSON.stringify(payload)), INTOTO_PAYLOAD_TYPE, opts)
 }
 
-module.exports = generateProvenance
+module.exports = {
+  generateProvenance,
+  verifyProvenance,
+}

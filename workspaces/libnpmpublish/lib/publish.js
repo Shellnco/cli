@@ -6,7 +6,10 @@ const { URL } = require('url')
 const ssri = require('ssri')
 const ciInfo = require('ci-info')
 
-const generateProvenance = require('./provenance')
+const {
+  generateProvenance,
+  verifyProvenance,
+} = require('./provenance')
 
 const publish = async (manifest, tarballData, opts) => {
   if (manifest.private) {
@@ -136,6 +139,10 @@ const buildMetadata = async (registry, manifest, tarballData, spec, opts) => {
 
   if (provenance) {
     let provenanceBundle
+    const subject = {
+      name: npa.toPurl(spec),
+      digest: { sha512: integrity.sha512[0].hexDigest() },
+    }
 
     // Handle case where --provenance flag was set to true
     if (provenance === true) {
@@ -151,11 +158,7 @@ const buildMetadata = async (registry, manifest, tarballData, spec, opts) => {
             { code: 'EUSAGE' }
           )
         }
-        provenanceBundle = await generateProvenance({ subject: [{
-          name: npa.toPurl(spec),
-          digest: { sha512: integrity.sha512[0].hexDigest() },
-        }],
-        }, opts)
+        provenanceBundle = await generateProvenance({ subject: [subject] }, opts)
       } else {
         throw Object.assign(
           new Error('Automatic provenance generation not supported outside of GitHub Actions'),
@@ -163,18 +166,14 @@ const buildMetadata = async (registry, manifest, tarballData, spec, opts) => {
         )
       }
     } else {
-      // TODO: Handle case where an existing bundle was supplied. Read bundle
-      // from disk and verify
-
+      provenanceBundle = await verifyProvenance(subject, provenance, tarballData)
     }
 
-    if (provenanceBundle) {
-      const serializedBundle = JSON.stringify(provenanceBundle)
-      root._attachments[provenanceBundleName] = {
-        content_type: provenanceBundle.mediaType,
-        data: serializedBundle,
-        length: Buffer.from(serializedBundle).length,
-      }
+    const serializedBundle = JSON.stringify(provenanceBundle)
+    root._attachments[provenanceBundleName] = {
+      content_type: provenanceBundle.mediaType,
+      data: serializedBundle,
+      length: Buffer.from(serializedBundle).length,
     }
   }
 
